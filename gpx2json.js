@@ -1,136 +1,17 @@
-const tj = require("@tmcw/togeojson");
 const fs = require("fs");
-const readline = require('readline');
-const sax = require("sax"),
-  strict = false, // set to false for html-mode
-  parser = sax.parser(strict);
-  
+const sax = require("sax");
+const strict = true;
 
 const filePath = 'files/Washington_and_Old_Dominion_trail.gpx'
-const saxStreamFUCKOFF = sax.createStream(false, {
-  lowercase: true
-})
 
+const featureCollectionStart = "{\"type\":\"FeatureCollection\",\"features\":["
+const featureCollectionEnd = "]}"
 
+// output json file
+let writer = fs.createWriteStream("files/testSTREAM.json");
 
-/*const fileStream = fs.createReadStream(filePath)
-saxStream.on('error', (e) => {
-  console.error(e)
-  fileStream.close()
-})
-saxStream.on('end', () => {
-  fileStream.close()
-})
-fileStream.pipe(saxStream)
-
-
-// keep track of current tag
-let currentTag = null
-let tag_name = null
-
-
-    // when the tag is first encountered
-    saxStream.on('opentag', (tag) => {
-      currentTag = tag;
-      switch (tag.name) {
-        case 'tag_name':
-          // tag may have some attributes... tag.attributes
-          // create this tag's object
-          tag_name = {}
-          return
-        default:
-          // ignore unsupported tags
-          return
-      }
-    })
-
-    saxStream.on('text', (data) => {
-      if (!data.trim() || !currentTag) return
-      switch (currentTag.name) {
-        case 'tag_name':
-          // this tag has text information
-          tag_name.text = data
-          return
-        default:
-          // ignore unsupported tags
-          return
-      }
-    })
-
-    saxStream.on('closetag', (tag) => {
-      // done with this tag
-      currentTag = null
-      switch (tag) {
-        case 'tag_name':
-          // tag name is now finished, do something with the tag_name object you created
-          console.log(tag_name)
-          tag_name = null
-          return
-        default:
-          // ignore unsupported tags
-          return
-      }
-    })
-// node doesn't have xml parsing or a dom. use xmldom
-const DOMParser = require("xmldom").DOMParser;
-
-const gpx = new DOMParser().parseFromString(fs.readFileSync(filePath, "utf8"));
-
-const converted = tj.gpx(gpx);
-const json = JSON.stringify(converted);
-
-fs.writeFile('files/test.json', json, err => {
-    if (err) {
-      console.error(err);
-    }
-    else {
-      console.log("File conversion complete")
-    }
-  });*/
-
-//------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-
-parser.onerror = function (e) {
-  // an error happened.
-};
-parser.ontext = function (t) {
-  // got some text.  t is the string of text.
-};
-parser.onopentag = function (node) {
-  // opened a tag.  node has "name" and "attributes"
-};
-parser.onattribute = function (attr) {
-  // an attribute.  attr has "name" and "value"
-};
-parser.onend = function () {
-  // parser stream is done, and ready to have more stuff written to it.
-};
- 
-
-
-const toBeJSON = null;
-/*
-var type = "FeatureCollection";
-var type2 = "Feature";
-var _gpxType = "trk";
-var name = filePath.substring(filePath.lastIndexOf("/"), lastIndexOf("."));
-    name = name.trim();
-    name = name.replace('_', ' ');
-var type3 = "LineString";
-*/
-
-
-
- var begginningOfJOSN = "{\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"_gpxType\":\"trk\",\"name\":\"Washington and Old Dominion trail\",\"coordinateProperties\":{}},\"geometry\":{\"type\":\"LineString\",\"coordinates\":["
-
- var coordinates = [];
-
- 
-
-
- var saxStream = require("sax").createStream(strict, {trim:true})
- saxStream.on("error", function (e) {
+var saxStream = sax.createStream(strict, {trim: true, lowercase: true})
+saxStream.on("error", function (e) {
    // unhandled errors will throw, since this is a proper node
    // event emitter.
    console.error("error!", e)
@@ -139,41 +20,112 @@ var type3 = "LineString";
    this._parser.resume()
 })
 
-fs.createReadStream(filePath) 
-.pipe(saxStream)
-.pipe(fs.createWriteStream("files/file-copy.xml"))
+let featuresWritten = 0;
 
-let writer = fs.createWriteStream("files/testSTREAM.json");
-writer.write(begginningOfJOSN);
+let wpt = null; // Point feature
 
-var holderLat = null;
-var holderLong = null;
-var holderEle = null;
-saxStream.on("opentag", function (node) {
-  if (node.name.toString() == "TRKPT") {
-    holderLat = node.attributes.LAT;
-    holderLong = node.attributes.LON;
+let rte = null; // LineString feature
+let rtePt = null; // Point in the line string
+
+let trk = null; // MultiLineString feature
+let trkSg = null; // LineString in the MultiLineString
+let trkPt = null; // Point in the LineString
+
+function startFeature (type) {
+  if (featuresWritten > 0) {
+    writer.write(',')
   }
-  // else if (node.name.toString() == "ELE") {
+  writer.write('{\"type\": \"Feature\", \"geometry\": {\"type\":\"' + type + "\", \"coordinates\":[")
+  featuresWritten++
+}
 
-  // }
+saxStream.on("opentag", (node) => {
+  const tag = node.name.toString().toLowerCase()
+  if (tag === 'gpx') {
+    writer.write(featureCollectionStart);
+  } else if (tag === 'wpt') {
+    wpt = {
+      properties: {},
+    }
+  } else if (tag === 'rte') {
+    rte = {
+      properties: {},
+      rtePointsWritten: 0
+    }
+  } else if (tag === 'trk') {
+    trk = {
+      properties: {},
+      trackSegmentsWritten: 0
+    }
+    startFeature('MultiLineString')
+  } else if (tag === 'trkseg') {
+    trkSg = {
+      trackPointsWritten: 0
+    }
+    if (trk.trackSegmentsWritten > 0) {
+      writer.write(',')
+    }
+    writer.write('[')
+  } else if (tag === 'wpt') {
+    wpt = {
+      lat: node.attributes.lat,
+      lon: node.attributes.lon
+    }
+  } else if (tag === 'rtept') {
+    rtePt = {
+      lat: node.attributes.lat,
+      lon: node.attributes.lon
+    }
+  } else if (tag === 'trkpt') {
+    trkPt = {
+      lat: node.attributes.lat,
+      lon: node.attributes.lon
+    }
+  }
 })
-var firstRun = null;
+
 saxStream.on("text", function (node) {
-  if (this._parser.tag.name == "ELE") {
-    if (firstRun != true) {
-      holderEle = node; 
-      writer.write("[" + holderLong + "," + holderLat + "," + holderEle + "]");
-      firstRun = true
+  const currentTag = this._parser.tag.name.toLowerCase()
+  if (currentTag === 'name') {
+    if (trk != null) {
+      trk.properties.name = node
     }
-    else if (firstRun == true) {
-      holderEle = node; 
-      writer.write(",[" + holderLong + "," + holderLat + "," + holderEle + "]");
+  } else if (currentTag === 'ele') {
+    if (trkPt != null) {
+      trkPt.elevation = node
     }
   }
 })
 
-saxStream.on("end", function(node) {
-  writer.write("]}}]}")
+saxStream.on('closetag', function (node) {
+  const tag = node.toLowerCase()
+  if (tag === 'gpx') {
+    writer.write(featureCollectionEnd);
+  } else if (tag === 'wpt') {
+    wpt = null
+  } else if (tag === 'rte') {
+    rte = null
+  } else if (tag === 'rtept') {
+    rtePt = null
+  } else if (tag === 'trk') {
+    writer.write(']}, \"properties\": ' + JSON.stringify(trk.properties) + '}'); // end the multi line string
+    trk = null
+  } else if (tag === 'trkseg') {
+    writer.write(']'); // end line string in the multi line string
+    trk.trackSegmentsWritten++
+    trkSg = null
+  } else if (tag === 'trkpt') {
+    const commaText = trkSg.trackPointsWritten > 0 ? ',' : ''
+    if (trkPt.elevation != null) {
+      writer.write(commaText + '[' + trkPt.lon + ',' + trkPt.lat + ',' + trkPt.elevation + ']');
+    } else {
+      writer.write(commaText + '[' + trkPt.lon + ',' + trkPt.lat + ']');
+    }
+    trkSg.trackPointsWritten++
+    trkPt = null
+  }
 })
+
+// read in file and pipe to sax stream
+fs.createReadStream(filePath).pipe(saxStream)
 
